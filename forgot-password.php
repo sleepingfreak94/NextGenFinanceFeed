@@ -4,6 +4,7 @@ ini_set('display_errors', 1);
 
 session_start();
 require_once __DIR__ . '/includes/db/db.php';
+require_once __DIR__ . '/includes/config.php'; // Load .env config
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -14,6 +15,8 @@ require 'includes/phpmailer/SMTP.php';
 
 $db = new Database();
 $conn = $db->conn;
+
+$config = require __DIR__ . '/includes/config.php'; // Config array from .env
 
 $error = '';
 $success = '';
@@ -36,50 +39,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_result($id, $firstName);
             $stmt->fetch();
 
-            // Now that we have $email and $firstName, send the reset email:
             try {
+                // Initialize PHPMailer
                 $mail = new PHPMailer(true);
                 $mail->isSMTP();
-                $mail->Host       = 'smtp.mailersend.net';
+                $mail->Host       = $config['smtp_host'];
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'MS_mGS8ah@test-r83ql3px08pgzw1j.mlsender.net';
-                $mail->Password   = 'mssp.5bXlvBz.neqvygmxr3zl0p7w.DplEV6f';
+                $mail->Username   = $config['smtp_username'];
+                $mail->Password   = $config['smtp_password'];
                 $mail->SMTPSecure = 'tls';
-                $mail->Port       = 587;
+                $mail->Port       = $config['smtp_port'];
 
-                $mail->setFrom('MS_mGS8ah@test-r83ql3px08pgzw1j.mlsender.net', 'NextGen News Portal');
-                $mail->addAddress('kshitijsharma94@gmail.com', $firstName);
+                $mail->setFrom($config['smtp_from_email'], $config['smtp_from_name']);
+                $mail->addAddress($email, $firstName);
 
-                // 1. Generate a secure random token (e.g., 32 characters)
-$token = bin2hex(random_bytes(16));
+                // Generate secure token and expiration
+                $token = bin2hex(random_bytes(16));
+                $expiry = date('Y-m-d H:i:s', time() + 3600); // 1 hour
 
-// 2. Save this token to your database along with an expiration time (e.g., 1 hour)
-// You'll need to implement this part: update your password_resets or users table
-$expiry = date('Y-m-d H:i:s', time() + 3600); // 1 hour from now
+                // Save token to DB
+                $stmtToken = $conn->prepare(
+                    "REPLACE INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)"
+                );
+                $stmtToken->bind_param("iss", $id, $token, $expiry);
+                $stmtToken->execute();
+                $stmtToken->close();
 
-// Example SQL to insert/update token (adjust table/column names accordingly)
-$stmtToken = $conn->prepare("REPLACE INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)");
-$stmtToken->bind_param("iss", $id, $token, $expiry);
-$stmtToken->execute();
-$stmtToken->close();
+                // Reset URL (update domain for production)
+                $reset_link = "http://localhost/NextGenFinanceFeed/reset-password.php?token=" . urlencode($token);
 
-// 3. Create the reset URL - update domain & path accordingly
-$reset_link = "http://localhost/NextGenFinanceFeed/reset-password.php?token=" . urlencode($token);
+                // Email body
+                $mailBody = "
+                    <p>Hello " . htmlspecialchars($firstName) . ",</p>
+                    <p>We received a request to reset your password. Click the link below to choose a new password:</p>
+                    <p><a href=\"$reset_link\">Reset your password</a></p>
+                    <p>If you did not request a password reset, please ignore this email.</p>
+                    <p>Thank you,<br>NextGen News Portal Team</p>
+                ";
 
-
-// 4. Build the email body with the link embedded in anchor tag
-$mailBody = "
-    <p>Hello " . htmlspecialchars($firstName) . ",</p>
-    <p>We received a request to reset your password. Click the link below to choose a new password:</p>
-    <p><a href=\"$reset_link\">Reset your password</a></p>
-    <p>If you did not request a password reset, please ignore this email.</p>
-    <p>Thank you,<br>NextGen News Portal Team</p>
-";
-
-// 5. Then assign it to PHPMailer body
-$mail->isHTML(true);
-$mail->Subject = 'Password Reset Instructions';
-$mail->Body    = $mailBody;
+                $mail->isHTML(true);
+                $mail->Subject = 'Password Reset Instructions';
+                $mail->Body    = $mailBody;
 
                 $mail->send();
 
@@ -92,7 +92,6 @@ $mail->Body    = $mailBody;
     }
 }
 ?>
-
 
 <?php include 'includes/header.php'; ?>
 
@@ -118,6 +117,5 @@ $mail->Body    = $mailBody;
         </p>
     </div>
 </section>
-
 
 <?php include 'includes/footer.php'; ?>

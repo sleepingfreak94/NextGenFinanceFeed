@@ -13,5 +13,9 @@ class Database
         if ($this->conn->connect_error) {
             die("Database Connection Failed: " . $this->conn->connect_error);
         }
+        // ✅ Force UTF-8 (utf8mb4) for this connection
+        if (!$this->conn->set_charset("utf8mb4")) {
+            die("Error loading character set utf8mb4: " . $this->conn->error);
+        }
     }
 }
